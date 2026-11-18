@@ -1,0 +1,119 @@
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sepid}
+      POSTGRES_USER: ${POSTGRES_USER:-sepid}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - sepid-production-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 55320
+      DATABASE_URL: ${DATABASE_URL:?Set URL-encoded DATABASE_URL in .env.production}
+      SEPID_ADMIN_USERNAME: ${SEPID_ADMIN_USERNAME:-}
+      SEPID_ADMIN_PASSWORD: ${SEPID_ADMIN_PASSWORD:-}
+      SEPID_ALLOW_ADMIN_SETUP: ${SEPID_ALLOW_ADMIN_SETUP:-false}
+      SMS_WORKER_DISABLED: "true"
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      SMS_CONFIG_ENCRYPTION_KEY: ${SMS_CONFIG_ENCRYPTION_KEY:-}
+      SMSIR_API_KEY: ${SMSIR_API_KEY:-}
+      SMSIR_LINE_NUMBER: ${SMSIR_LINE_NUMBER:-}
+      KAVENEGAR_API_KEY: ${KAVENEGAR_API_KEY:-}
+      KAVENEGAR_SENDER: ${KAVENEGAR_SENDER:-}
+      BACKUP_DIRECTORY: /app/backups
+    volumes:
+      - sepid-production-backups:/app/backups:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:55320/api/v1/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: ["node", "dist/main.js", "--worker"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set URL-encoded DATABASE_URL in .env.production}
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      SMS_CONFIG_ENCRYPTION_KEY: ${SMS_CONFIG_ENCRYPTION_KEY:-}
+      SMSIR_API_KEY: ${SMSIR_API_KEY:-}
+      SMSIR_LINE_NUMBER: ${SMSIR_LINE_NUMBER:-}
+      KAVENEGAR_API_KEY: ${KAVENEGAR_API_KEY:-}
+      KAVENEGAR_SENDER: ${KAVENEGAR_SENDER:-}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  backup:
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-sepid}
+      PGDATABASE: ${POSTGRES_DB:-sepid}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - sepid-production-backups:/backups
+    depends_on:
+      api:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        umask 077
+        while true; do
+          stamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          target="/backups/sepid-$$stamp.dump"
+          temporary="$$target.tmp"
+          if pg_dump --format=custom --no-owner --no-acl "$$PGDATABASE" > "$$temporary" && pg_restore --list "$$temporary" >/dev/null; then
+            chmod 0444 "$$temporary"
+            mv "$$temporary" "$$target"
+            find /backups -type f -name 'sepid-*.dump' -mtime "+$$BACKUP_RETENTION_DAYS" -delete
+            echo "Backup created and verified: $$target"
+            sleep "$$BACKUP_INTERVAL_SECONDS"
+          else
+            rm -f "$$temporary"
+            echo "Backup failed; retrying in five minutes" >&2
+            sleep 300
+          fi
+        done
+
+  web:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  sepid-production-data:
+  sepid-production-backups:

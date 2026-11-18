@@ -1,0 +1,10 @@
+{
+  "name": "sepid-fleet-system",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev:api": "npm run dev --workspace @sepid/api",
+    "dev:web": "npm run dev --workspace @sepid/web"
+  }
+}
