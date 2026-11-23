@@ -498,7 +498,8 @@ const permissionLimits: Record<string, number> = {
 };
 type StageDefinition = { id: string; label: string; kind: 'report' | 'step' | 'test'; mode: 'report' | 'step' | 'wait' | 'done' | 'test'; loc: 'factory' | 'road' | 'shop' | 'part' | 'done'; limit: number | null; who: string; desc: string };
 const defaultStages: StageDefinition[] = [
-  { id: 'report', label: 'اعلام خرابی (ماشین در کارخانه)', kind: 'report', mode: 'report', loc: 'factory', limit: null, who: 'سرپرست', desc: 'خرابی ثبت شده و ماشین هنوز در کارخانه است' },
+  { id: 'report', label: 'اعلام خرابی', kind: 'report', mode: 'report', loc: 'factory', limit: null, who: 'سرپرست', desc: 'خرابی ثبت شده و ماشین هنوز در کارخانه است' },
+  { id: 'dispatch', label: 'اعزام به تعمیرگاه', kind: 'step', mode: 'step', loc: 'road', limit: null, who: 'تعمیرات', desc: 'ماشین به تعمیرگاه اعزام شده است' },
   { id: 'wait', label: 'در انتظار قطعه یا خدمات', kind: 'step', mode: 'wait', loc: 'part', limit: 7, who: 'تعمیرات', desc: 'ماشین برای تعمیر رفته و در انتظار تأمین قطعه یا انجام خدمات تعمیر است' },
   { id: 'done', label: 'پایان تعمیر', kind: 'step', mode: 'done', loc: 'shop', limit: 2, who: 'تعمیرات', desc: 'تعمیر تمام شده و ماشین باید در کارخانه تست سلامت شود' },
   { id: 'test', label: 'تست سلامت (ماشین در کارخانه)', kind: 'test', mode: 'test', loc: 'done', limit: null, who: 'سرپرست', desc: 'ماشین در کارخانه آزمایش می‌شود؛ اگر قبول شود پرونده بایگانی می‌شود و اگر رد شود خرابی جدید ثبت می‌شود' },
@@ -512,7 +513,8 @@ async function configuredStages(pool: Pool): Promise<StageDefinition[]> {
     const defaults=defaultStages.find(item=>item.id===stage.id);
     const mode=stage.mode??defaults?.mode??(stage.id==='report'?'report':stage.id==='test'?'test':stage.id==='wait'?'wait':stage.id==='done'?'done':'step');
     const defaultLoc=defaults?.loc??(mode==='report'?'factory':mode==='wait'?'part':mode==='done'?'shop':mode==='test'?'done':'shop');
-    return { ...defaults, ...stage, label:stage.label??defaults?.label, kind:stage.kind??defaults?.kind, mode, loc:stage.loc??defaultLoc, who:stage.who||defaults?.who||'', desc:stage.desc||defaults?.desc||'', limit: stage.limit === undefined ? (defaults?.limit??null) : stage.limit };
+    const label=stage.id==='report'&&stage.label==='اعلام خرابی (ماشین در کارخانه)'?'اعلام خرابی':stage.label??defaults?.label;
+    return { ...defaults, ...stage, label, kind:stage.kind??defaults?.kind, mode, loc:stage.loc??defaultLoc, who:stage.who||defaults?.who||'', desc:stage.desc||defaults?.desc||'', limit: stage.limit === undefined ? (defaults?.limit??null) : stage.limit };
   });
 }
 
@@ -865,6 +867,32 @@ class DirectoryController {
 class RepairsController {
   constructor(private readonly database: Database, private readonly auth: Auth) {}
 
+  @Delete(':id')
+  async remove(@Req() request: RequestHeaders, @Param('id', ParseUUIDPipe) id: string, @Body() body?: MachineInput) {
+    requireMutationHeader(request);
+    const account = await this.auth.access(request, 'repairs', 3);
+    if (account.scope_shop) throw new ForbiddenException();
+    if (typeof body?.version !== 'number' || !Number.isInteger(body.version)) throw new BadRequestException();
+    const client = await this.database.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const repair = await client.query('SELECT version FROM repairs WHERE id=$1 FOR UPDATE', [id]);
+      if (!repair.rowCount) throw new NotFoundException('پرونده پیدا نشد.');
+      if (repair.rows[0].version !== body.version) throw new ConflictException('پرونده تغییر کرده است. فهرست را تازه‌سازی کنید.');
+      const followUp = await client.query('SELECT 1 FROM repairs WHERE previous_repair_id=$1 LIMIT 1', [id]);
+      if (followUp.rowCount) throw new ConflictException('این پرونده پروندهٔ پیگیری دارد. ابتدا پروندهٔ پیگیری را بررسی کنید.');
+      await client.query('DELETE FROM repair_events WHERE repair_id=$1', [id]);
+      await client.query('DELETE FROM repairs WHERE id=$1', [id]);
+      await client.query('COMMIT');
+      return { deleted: true };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   @Get('stages')
   @Header('Cache-Control', 'no-store')
   async stages(@Req() request: RequestHeaders) {
@@ -963,7 +991,7 @@ class RepairsController {
          SELECT $13, id, version, stage, title, $12 FROM created
        )
        SELECT created.id,created.number,created.machine_id,created.previous_repair_id,previous.number AS previous_repair_number,created.title,created.urgency,created.shop,created.note,created.stage,created.result,
-         created.version,created.created_at,created.updated_at,created.report_date::text AS report_date,created.diagnoser,
+         created.version,created.workflow,created.created_at,created.updated_at,created.report_date::text AS report_date,created.diagnoser,
          created.expected_date::text AS expected_date,created.refer_date::text AS refer_date,created.repairer_note,
          created.return_date::text AS return_date,created.delay_reason,m.code AS machine_code
        FROM created JOIN machines m ON m.id = created.machine_id LEFT JOIN repairs previous ON previous.id=created.previous_repair_id`,
@@ -1000,7 +1028,7 @@ class RepairsController {
          RETURNING r.*
        )
        SELECT changed.id,changed.number,changed.machine_id,changed.previous_repair_id,previous.number AS previous_repair_number,changed.title,changed.urgency,changed.shop,changed.note,changed.stage,changed.result,
-         changed.version,changed.created_at,changed.updated_at,changed.report_date::text AS report_date,changed.diagnoser,
+         changed.version,changed.workflow,changed.created_at,changed.updated_at,changed.report_date::text AS report_date,changed.diagnoser,
          changed.expected_date::text AS expected_date,changed.refer_date::text AS refer_date,changed.repairer_note,
          changed.return_date::text AS return_date,changed.delay_reason,m.code AS machine_code
        FROM changed JOIN machines m ON m.id=changed.machine_id LEFT JOIN repairs previous ON previous.id=changed.previous_repair_id`,
@@ -1068,6 +1096,14 @@ class RepairsController {
     const rawDetails:Record<string,unknown>={};
     if(body&&Object.hasOwn(body,'shop'))rawDetails.shop=inputText(body.shop,150);
     if(body&&Object.hasOwn(body,'expected_date'))rawDetails.expected_date=body.expected_date?calendarDate(body.expected_date):'';
+    if (!repeatCurrent && previous === 'report' && stage === 'dispatch') {
+      if (!body?.refer_date) throw new BadRequestException('تاریخ رفتن به تعمیرگاه الزامی است.');
+      if (!rawDetails.shop) throw new BadRequestException('نام تعمیرکار الزامی است.');
+      rawDetails.refer_date = calendarDate(body.refer_date);
+    }
+    if (!repeatCurrent && previous === 'dispatch' && next.mode === 'wait' && !rawDetails.expected_date) {
+      throw new BadRequestException('تاریخ پیش‌بینی بازگشت از تعمیر الزامی است.');
+    }
     if(body&&Object.hasOwn(body,'part_name'))rawDetails.part_name=inputText(body.part_name,200);
     if(body&&Object.hasOwn(body,'part_status')){
       if(!['ordered','bought','shipping','arrived'].includes(String(body.part_status)))throw new BadRequestException('Invalid part status');
@@ -1087,6 +1123,15 @@ class RepairsController {
     const client=await this.database.pool.connect();
     try{
       await client.query('BEGIN');
+      const current = await client.query('SELECT report_date::text,refer_date::text FROM repairs WHERE id=$1 AND version=$2 AND stage=$3 FOR UPDATE', [id, version, previous]);
+      if (!current.rowCount) throw new ConflictException('Repair already changed or unavailable');
+      if (typeof rawDetails.refer_date === 'string' && rawDetails.refer_date < current.rows[0].report_date) {
+        throw new BadRequestException('تاریخ رفتن به تعمیرگاه نباید قبل از اعلام خرابی باشد.');
+      }
+      if (typeof rawDetails.expected_date === 'string' && rawDetails.expected_date &&
+          rawDetails.expected_date < (current.rows[0].refer_date ?? current.rows[0].report_date)) {
+        throw new BadRequestException('تاریخ پیش‌بینی بازگشت نباید قبل از اعزام به تعمیرگاه باشد.');
+      }
       const smsSettings=await client.query("SELECT coalesce((payload->>'smsStageAlerts')::boolean,false) AS enabled,payload->'smsRules' AS rules FROM app_settings WHERE singleton");
       const smsRule=smsRuleFor(smsSettings.rows[0]?.rules,next);
       const result = await client.query(
@@ -1095,7 +1140,7 @@ class RepairsController {
          FROM repairs WHERE id=$1 AND version=$2 AND stage=$3 FOR UPDATE
        ), changed AS (
          UPDATE repairs r SET stage = $4, result = $5, version = r.version + 1, updated_at = now(),
-           refer_date = CASE WHEN $13 THEN COALESCE(r.refer_date,(now() AT TIME ZONE 'Asia/Tehran')::date) ELSE r.refer_date END,
+           refer_date = CASE WHEN $13 THEN COALESCE(($17::jsonb->>'refer_date')::date,r.refer_date,(now() AT TIME ZONE 'Asia/Tehran')::date) ELSE r.refer_date END,
            return_date = CASE WHEN $14 THEN COALESCE(r.return_date,(now() AT TIME ZONE 'Asia/Tehran')::date) ELSE r.return_date END,
            repairer_note = CASE WHEN $15 THEN $11 ELSE r.repairer_note END,
            delay_reason = CASE WHEN $16 THEN $12 ELSE r.delay_reason END,
@@ -1112,7 +1157,7 @@ class RepairsController {
          FROM changed JOIN prior ON prior.id=changed.id
        )
        SELECT changed.id,changed.number,changed.machine_id,changed.previous_repair_id,previous.number AS previous_repair_number,changed.title,changed.urgency,changed.shop,changed.note,changed.stage,changed.result,
-         changed.version,changed.created_at,changed.updated_at,changed.report_date::text AS report_date,changed.diagnoser,
+         changed.version,changed.workflow,changed.created_at,changed.updated_at,changed.report_date::text AS report_date,changed.diagnoser,
          changed.expected_date::text AS expected_date,changed.refer_date::text AS refer_date,changed.repairer_note,
          changed.return_date::text AS return_date,changed.delay_reason,m.code AS machine_code,m.plate
        FROM changed JOIN machines m ON m.id = changed.machine_id LEFT JOIN repairs previous ON previous.id=changed.previous_repair_id CROSS JOIN stage_args`,
@@ -1193,7 +1238,7 @@ class RepairsController {
       if (!restored.rowCount) throw new ConflictException('Repair already changed or unavailable');
       await client.query('UPDATE repair_events SET voided_at=now(),voided_by=$2 WHERE id=$1 AND voided_at IS NULL', [event.id, account.id]);
       const withMachine = await client.query(`SELECT r.id,r.number,r.machine_id,r.previous_repair_id,previous.number AS previous_repair_number,
-          r.title,r.urgency,r.shop,r.note,r.stage,r.result,r.version,r.created_at,r.updated_at,r.report_date::text AS report_date,
+          r.title,r.urgency,r.shop,r.note,r.stage,r.result,r.version,r.workflow,r.created_at,r.updated_at,r.report_date::text AS report_date,
           r.diagnoser,r.expected_date::text AS expected_date,r.refer_date::text AS refer_date,r.repairer_note,
           r.return_date::text AS return_date,r.delay_reason,m.code AS machine_code
         FROM repairs r JOIN machines m ON m.id=r.machine_id LEFT JOIN repairs previous ON previous.id=r.previous_repair_id WHERE r.id=$1`, [id]);
@@ -1217,7 +1262,10 @@ class StatusController {
     const stages=await configuredStages(this.database.pool);
     const visibleStageIds=account.scope_shop?stages.filter(stage=>stage.kind==='step').map(stage=>stage.id):null;
     const [machines,repairs]=await Promise.all([
-      this.database.pool.query(`SELECT id,code,plate,type FROM machines WHERE active ORDER BY sort_order,id`),
+      this.database.pool.query(`SELECT m.id,m.code,m.plate,m.type,latest.result AS last_repair_result FROM machines m
+        LEFT JOIN LATERAL (SELECT r.result FROM repairs r WHERE r.machine_id=m.id
+          ORDER BY r.created_at DESC,r.number DESC LIMIT 1) latest ON true
+        WHERE m.active ORDER BY m.sort_order,m.id`),
       this.database.pool.query(`SELECT r.id,r.number,r.machine_id,r.title,r.shop,r.note,r.stage,r.urgency,r.result,r.version,r.workflow,
           r.created_at,r.updated_at,r.report_date::text AS report_date,r.expected_date::text AS expected_date,
           r.refer_date::text AS refer_date,r.return_date::text AS return_date,m.code AS machine_code,m.plate,m.type,
@@ -2090,6 +2138,16 @@ class LegacyWorkspaceController {
 @Controller('analyses')
 class AnalysesController {
   constructor(private readonly database: Database, private readonly auth: Auth) {}
+
+  @Delete(':id')
+  async remove(@Req() request: RequestHeaders, @Param('id', ParseUUIDPipe) id: string) {
+    requireMutationHeader(request);
+    const account = await this.auth.access(request, 'analyses', 3);
+    if (account.scope_shop) throw new ForbiddenException();
+    const result = await this.database.pool.query('DELETE FROM analyses WHERE id=$1 RETURNING id', [id]);
+    if (!result.rowCount) throw new NotFoundException('تحلیل پیدا نشد.');
+    return { deleted: true };
+  }
 
   @Get('options')
   @Header('Cache-Control', 'no-store')

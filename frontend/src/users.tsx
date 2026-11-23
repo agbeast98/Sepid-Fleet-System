@@ -12,8 +12,8 @@ type Person={id:string;name:string;role:string;active:boolean};
 type User = { id: string; name: string; username: string; active: boolean; is_super_admin: boolean; phone: string; receive_sms: boolean; person_id:string|null; scope_shop:boolean; permissions: Record<string, number>; stages: string[];last_login:string|null };
 type Draft = Omit<User, 'id' | 'is_super_admin' | 'last_login'> & { password: string; template:string };
 const roleTemplates:Record<string,{label:string;permissions:Record<string,number>;stages:string[];scope_shop:boolean}>={
-  supervisor:{label:'سرپرست',permissions:{status:2,repairs:2,dashboard:1,analyses:2,people:1,machines:1,maint:1,parts:1,settings:0,sms:0},stages:['report','wait','test'],scope_shop:false},
-  repair:{label:'تعمیرات',permissions:{status:2,repairs:1,dashboard:0,analyses:0,people:0,machines:1,maint:1,parts:1,settings:0,sms:0},stages:['wait','done'],scope_shop:true},
+  supervisor:{label:'سرپرست',permissions:{status:2,repairs:2,dashboard:1,analyses:2,people:1,machines:1,maint:1,parts:1,settings:0,sms:0},stages:['report','dispatch','wait','test'],scope_shop:false},
+  repair:{label:'تعمیرات',permissions:{status:2,repairs:1,dashboard:0,analyses:0,people:0,machines:1,maint:1,parts:1,settings:0,sms:0},stages:['dispatch','wait','done'],scope_shop:true},
   tester:{label:'مسئول تست سلامت',permissions:{status:2,repairs:1,dashboard:1,analyses:0,people:0,machines:1,maint:1,parts:1,settings:0,sms:0},stages:['test'],scope_shop:false},
   viewer:{label:'فقط مشاهده',permissions:{status:1,repairs:1,dashboard:1,analyses:1,people:1,machines:1,maint:1,parts:1,settings:0,sms:0},stages:[],scope_shop:false},
 };

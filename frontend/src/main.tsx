@@ -173,11 +173,11 @@ function App() {
     {section === 'machines' && <Machines permissions={account.permissions} navigate={setSection} initialMachineId={openMachineId} onInitialMachineOpened={()=>setOpenMachineId(null)} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} onCreateRepair={id=>{setQuickRepairMachineId(id);setQuickAction('repairs');setSection('repairs');}} />}
     {section === 'people' && <People level={account.permissions.people??0} availableSections={(['machines','people'] as const).filter(key=>(account.permissions[key]??0)>=1)} canManageDefinitions={(account.permissions.settings??0)>=2} onNavigate={setSection} />}
     {section === 'actions' && <ManagementActions permissions={account.permissions} initialPersonId={actionPersonId} onSelectPerson={setActionPersonId} onNavigate={setSection} />}
-    {section === 'repairs' && <Repairs startNew={quickAction==='repairs'} initialMachineId={quickRepairMachineId} onQuickComplete={()=>{setQuickAction(null);setQuickRepairMachineId(null);}} canUndo={(account.permissions.status??0)>=3} initialRepairId={openRepairId} onInitialRepairOpened={()=>setOpenRepairId(null)} onAnalyze={(id)=>{setQuickRepairId(id);setQuickAction('analyses');setSection('analyses');}} canAnalyze={(account.permissions.analyses??0)>=2} />}
+    {section === 'repairs' && <Repairs startNew={quickAction==='repairs'} initialMachineId={quickRepairMachineId} onQuickComplete={()=>{setQuickAction(null);setQuickRepairMachineId(null);}} canUndo={(account.permissions.status??0)>=3} canDelete={!account.scope_shop&&(account.permissions.repairs??0)>=3} initialRepairId={openRepairId} onInitialRepairOpened={()=>setOpenRepairId(null)} onAnalyze={(id)=>{setQuickRepairId(id);setQuickAction('analyses');setSection('analyses');}} canAnalyze={(account.permissions.analyses??0)>=2} />}
     {section === 'maintenance' && <Maintenance canEditParts={(account.permissions.parts??0)>=2} onEditPart={id=>{setOpenPartId(id);setSection('parts');}} />}
     {section === 'parts' && <Parts initialPartId={openPartId} onInitialPartOpened={()=>setOpenPartId(null)} />}
     {section === 'users' && <Users />}
-    {section === 'analyses' && <Analyses startNew={quickAction==='analyses'} onQuickComplete={()=>{setQuickAction(null);setQuickRepairId(null);}} quickRepairId={quickRepairId} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} canEdit={(account.permissions.analyses??0)>=2} />}
+    {section === 'analyses' && <Analyses startNew={quickAction==='analyses'} onQuickComplete={()=>{setQuickAction(null);setQuickRepairId(null);}} quickRepairId={quickRepairId} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} canEdit={(account.permissions.analyses??0)>=2} canDelete={!account.scope_shop&&(account.permissions.analyses??0)>=3} />}
     {section === 'settings' && <Settings availableSections={(['machines','people','maintenance','parts','sms'] as const).filter(key => (account.permissions[key==='maintenance'?'maint':key]??0)>=(key==='sms'?2:1))} canManageDefinitions={(account.permissions.settings??0)>=2} onNavigate={setSection} onSettingsChange={value => { setCompanyName(value.companyName); setOrgName(value.orgName); setThemeSetting(value.theme); }} />}
     {(section === 'reports' || section === 'archive') && <Reports key={section} initialArchive={section === 'archive' ? 'closed' : 'all'} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} />}
     {section === 'sms' && (account.permissions.sms ?? 0) >= 2 && <Sms />}
@@ -626,7 +626,8 @@ function Machines({permissions,navigate,initialMachineId,onInitialMachineOpened,
 
 type RepairStageDefinition = { id: string; label: string; kind: 'report'|'step'|'test'; mode?:'report'|'step'|'wait'|'done'|'test'; loc?:'factory'|'road'|'shop'|'part'|'done'; limit:number|null; who?:string; desc?:string };
 const repairStages: RepairStageDefinition[] = [
-  {id:'report',label:'اعلام خرابی (ماشین در کارخانه)',kind:'report',mode:'report',loc:'factory',limit:null,who:'سرپرست',desc:'خرابی ثبت شده و ماشین هنوز در کارخانه است'},
+  {id:'report',label:'اعلام خرابی',kind:'report',mode:'report',loc:'factory',limit:null,who:'سرپرست',desc:'خرابی ثبت شده و ماشین هنوز در کارخانه است'},
+  {id:'dispatch',label:'اعزام به تعمیرگاه',kind:'step',mode:'step',loc:'road',limit:null,who:'تعمیرات',desc:'ماشین به تعمیرگاه اعزام شده است'},
   {id:'wait',label:'در انتظار قطعه یا خدمات',kind:'step',mode:'wait',loc:'part',limit:7,who:'تعمیرات',desc:'ماشین برای تعمیر رفته و در انتظار تأمین قطعه یا انجام خدمات تعمیر است'},
   {id:'done',label:'پایان تعمیر',kind:'step',mode:'done',loc:'shop',limit:2,who:'تعمیرات',desc:'تعمیر تمام شده و ماشین باید در کارخانه تست سلامت شود'},
   {id:'test',label:'تست سلامت (ماشین در کارخانه)',kind:'test',mode:'test',loc:'done',limit:null,who:'سرپرست',desc:'ماشین در کارخانه آزمایش می‌شود؛ اگر قبول شود پرونده بایگانی می‌شود و اگر رد شود خرابی جدید ثبت می‌شود'},
@@ -682,7 +683,7 @@ function RepairDelay({repair}:{repair:Repair}){
   return <span className="dl dl-ok"><Icon name="circle-check"/>{days===0?'به‌موقع':`${new Intl.NumberFormat('fa-IR').format(-days)} روز زودتر`}</span>;
 }
 
-function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,initialRepairId,onInitialRepairOpened,onAnalyze,canAnalyze}:{startNew:boolean;initialMachineId?:string|null;onQuickComplete:()=>void;canUndo:boolean;initialRepairId?:string|null;onInitialRepairOpened?:()=>void;onAnalyze?:(id:string)=>void;canAnalyze?:boolean}) {
+function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,initialRepairId,onInitialRepairOpened,onAnalyze,canAnalyze}:{startNew:boolean;initialMachineId?:string|null;onQuickComplete:()=>void;canUndo:boolean;canDelete:boolean;initialRepairId?:string|null;onInitialRepairOpened?:()=>void;onAnalyze?:(id:string)=>void;canAnalyze?:boolean}) {
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [stages,setStages]=useState<RepairStageDefinition[]>(repairStages);
   const [machines, setMachines] = useState<{ id: string; code: string; active: boolean; type:string|null; model_name:string|null }[]>([]);
@@ -694,6 +695,9 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,initialRepai
   const [machineDraft,setMachineDraft]=useState('');
   const [urgencyDraft,setUrgencyDraft]=useState<keyof typeof repairUrgencies|''>('');
   const [history, setHistory] = useState<RepairEvent[]>([]);
+  const selectedWorkflow = selected?.workflow ?? stages.map(stage => stage.id);
+  const selectedStageIndex = selected ? selectedWorkflow.indexOf(selected.stage) : -1;
+  const nextStage = selectedStageIndex >= 0 ? stages.find(stage => stage.id === selectedWorkflow[selectedStageIndex + 1]) : undefined;
   const [creating, setCreating] = useState(false);
   const [archived, setArchived] = useState(false);
   const [query, setQuery] = useState('');
@@ -802,6 +806,22 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,initialRepai
       setArchived(false);
       setRepairs(items => editingRepair ? items.map(item => item.id === repair.id ? repair : item) : [repair, ...items]);
       await openDetails(repair);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteRepair(repair: Repair) {
+    if (!window.confirm(`پروندهٔ ${repair.number} و تاریخچهٔ مراحل آن حذف شود؟ تحلیل مرتبط باقی می‌ماند و پیوند آن برداشته می‌شود. پیامک‌های ثبت‌شده در صف یا گزارش باقی می‌مانند.`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/repairs/${repair.id}`, 'DELETE', { version: repair.version });
+      setRepairs(items => items.filter(item => item.id !== repair.id));
+      setSelected(null);
+      setHistory([]);
     } catch (failure) {
       setError(errorMessage(failure));
     } finally {
@@ -951,7 +971,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,initialRepai
     </form>}
     {!creating&&<div className="repair-list-content">
     {selected && <article className="record" aria-label="جزئیات خرابی">
-      <div className="toolbar"><h3>{selected.title}</h3><button disabled={busy} onClick={printSelectedRepair}>چاپ فرم پرونده</button>{canAnalyze&&onAnalyze&&<button disabled={busy} onClick={()=>onAnalyze(selected.id)}>تحلیل این خرابی</button>}<button disabled={busy} onClick={()=>void openEdit(selected)}>ویرایش پرونده</button>
+      <div className="toolbar"><h3>{selected.title}</h3><button disabled={busy} onClick={printSelectedRepair}>چاپ فرم پرونده</button>{canAnalyze&&onAnalyze&&<button disabled={busy} onClick={()=>onAnalyze(selected.id)}>تحلیل این خرابی</button>}<button disabled={busy} onClick={()=>void openEdit(selected)}>ویرایش پرونده</button>{canDelete&&<button type="button" className="btn-danger" disabled={busy} onClick={()=>void deleteRepair(selected)}>حذف پرونده</button>}
         {canUndo&&history.at(-1)?.undoable&&!history.at(-1)?.voided_at&&history.at(-1)?.revision===selected.version&&<button disabled={busy}
           onClick={()=>void undoLast()}>برگرداندن آخرین ثبت</button>}</div>
       <p>{selected.machine_code} · {repairStatus(selected.stage, selected.result,stages)}</p>
@@ -967,9 +987,13 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,initialRepai
         {item.note && <p>{item.note}</p>}
         {item.details&&<p>{[['shop','تعمیرگاه'],['part_name','قطعه یا خدمت'],['part_status','وضعیت تأمین'],['part_vendor','فروشنده یا محل تأمین'],['part_eta','تحویل تقریبی'],['expected_date','موعد پایان']].filter(([key])=>item.details?.[key]).map(([key,label])=>`${label}: ${key==='part_status'?({ordered:'سفارش شد',bought:'خریداری شد',shipping:'در راه',arrived:'رسید'}[item.details?.[key]??'']??item.details?.[key]):item.details?.[key]}`).join(' · ')}</p>}
       </li>)}</ol>
-      {stages.findIndex(stage=>stage.id===selected.stage)>=0&&stages.findIndex(stage=>stage.id===selected.stage)<stages.length-1&& <form key={selected.id + selected.version} onSubmit={advance}>
-        {(()=>{const next=stages[stages.findIndex(stage=>stage.id===selected.stage)+1];return <>
+      {selected.result===null&&nextStage&& <form key={selected.id + selected.version} onSubmit={advance}>
+        {(()=>{const next=nextStage;return <>
         <h4>{next.label}</h4>
+        {selected.stage==='report'&&next.id==='dispatch'&&<div className="fields">
+          <label>تاریخ رفتن به تعمیرگاه (الزامی)<PersianDateInput name="refer_date" min={selected.report_date} required /></label>
+          <label>نام تعمیرکار (الزامی)<input name="shop" required maxLength={150} defaultValue={selected.shop} /></label>
+        </div>}
         {next.kind === 'test' && <label>نتیجهٔ تست<select aria-label="نتیجهٔ تست" name="result" required defaultValue="">
           <option value="" disabled>انتخاب نتیجه</option>
           <option value="pass">قبول</option><option value="fail">رد</option>
@@ -983,7 +1007,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,initialRepai
           <label>وضعیت تأمین<select name="part_status" defaultValue="ordered"><option value="ordered">سفارش یا درخواست داده شد</option><option value="bought">خریداری یا هماهنگ شد</option><option value="shipping">در راه تعمیرگاه</option><option value="arrived">رسید؛ تعمیر در حال انجام</option></select></label>
           <label>فروشنده یا محل تأمین<input name="part_vendor" maxLength={200} /></label>
           <label>تحویل تقریبی قطعه یا خدمت<PersianDateInput name="part_eta" /></label>
-          <label>موعد پیش‌بینی پایان تعمیر<PersianDateInput name="expected_date" defaultValue={selected.expected_date??''} /></label>
+          <label>تاریخ پیش‌بینی بازگشت از تعمیر{selected.stage==='dispatch'?' (الزامی)':''}<PersianDateInput name="expected_date" min={selected.refer_date??selected.report_date} required={selected.stage==='dispatch'} defaultValue={selected.expected_date??''} /></label>
         </>}
         <div className="fields"><label>تاریخ ثبت مرحله<PersianDateInput name="event_date" defaultValue={todayTehran()} /></label><label>ساعت ثبت مرحله<input name="event_time" type="time" defaultValue={timeTehran()} /></label></div>
         <button disabled={busy}>ثبت مرحلهٔ بعد</button>

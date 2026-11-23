@@ -35,7 +35,7 @@ function analysisResult(item: Analysis): string {
   return driver&&pm?'both':driver?'driver':pm?'pm':'none';
 }
 function normalizeDriverName(value:unknown):string{return typeof value==='string'?value.normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('fa'):'';}
-export function Analyses({startNew,onQuickComplete,canEdit=true,quickRepairId,onOpenRepair}:{startNew:boolean;onQuickComplete:()=>void;canEdit?:boolean;quickRepairId?:string|null;onOpenRepair?:(id:string)=>void}) {
+export function Analyses({startNew,onQuickComplete,canEdit=true,canDelete=false,quickRepairId,onOpenRepair}:{startNew:boolean;onQuickComplete:()=>void;canEdit?:boolean;canDelete?:boolean;quickRepairId?:string|null;onOpenRepair?:(id:string)=>void}) {
   const [items,setItems]=useState<Analysis[]>([]);
   const [machines,setMachines]=useState<Machine[]>([]);
   const [people,setPeople]=useState<Person[]>([]);
@@ -84,6 +84,20 @@ export function Analyses({startNew,onQuickComplete,canEdit=true,quickRepairId,on
   const [to,setTo]=useState('');
   const [busy,setBusy]=useState(true);
   const [error,setError]=useState('');
+  async function deleteAnalysis(item: Analysis) {
+    if (!window.confirm(`تحلیل «${item.topic}» حذف شود؟`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/analyses/${item.id}`, 'DELETE');
+      setItems(items => items.filter(entry => entry.id !== item.id));
+      setSelected(null);
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function refresh(){
     setBusy(true);setError('');
     try{const [list,options]=await Promise.all([api<Analysis[]>('/analyses'),api<AnalysisOptions>('/analyses/options')]);setItems(list);setMachines(options.machines);setPeople(options.people);setRepairs(options.repairs??[]);setRules(options.rules);setCountWindow(options.countWindow);const firstActive=options.machines.find(item=>item.active);if(!machineId&&firstActive){setMachineId(firstActive.id);setDriverId(firstActive.driver_id??'');setSupervisorId(firstActive.supervisor_id??'');setPmId(firstActive.pm_id??'');}}
@@ -235,7 +249,7 @@ export function Analyses({startNew,onQuickComplete,canEdit=true,quickRepairId,on
     <section className={open?'analysis-form-panel':'analysis-list-content'}>
     {error&&<p role="alert">{error}</p>}
     {!open&&selected&&<article className="record analysis-detail" aria-label="جزئیات تحلیل">
-      <div className="toolbar"><h3>{selected.topic} · {selected.machine_code}</h3><button type="button" onClick={()=>printSelectedAnalysis(selected)}>چاپ فرم تحلیل</button>{canEdit&&<button type="button" onClick={()=>openEdit(selected)}>ویرایش تحلیل</button>}<button type="button" onClick={()=>setSelected(null)}>بستن جزئیات</button></div>
+      <div className="toolbar"><h3>{selected.topic} · {selected.machine_code}</h3><button type="button" onClick={()=>printSelectedAnalysis(selected)}>چاپ فرم تحلیل</button>{canEdit&&<button type="button" onClick={()=>openEdit(selected)}>ویرایش تحلیل</button>}{canDelete&&<button type="button" className="btn-danger" disabled={busy} onClick={()=>void deleteAnalysis(selected)}>حذف تحلیل</button>}<button type="button" onClick={()=>setSelected(null)}>بستن جزئیات</button></div>
       <div className={`analysis-review-summary result-${analysisResult(selected)}`}><div><small>نتیجهٔ تحلیل خرابی</small><AnalysisResultBadge item={selected}/></div><AnalysisSeverityBadge severity={selected.severity}/><span>{dateFmt.format(new Date(selected.analysis_date+'T00:00:00Z'))}</span></div>
       {selected.repair_id&&<div className="analysis-repair-link"><div><b>پروندهٔ خرابی مرتبط {selected.repair_number??repairs.find(repair=>repair.id===selected.repair_id)?.number??''}</b><small>{selected.repair_title||repairs.find(repair=>repair.id===selected.repair_id)?.title||'پروندهٔ پیوندخورده'}</small></div>{onOpenRepair&&<button type="button" onClick={()=>onOpenRepair(selected.repair_id!)}>بازکردن پروندهٔ خرابی</button>}</div>}
       <dl className="analysis-detail-facts"><div><dt>ماشین</dt><dd>{selected.machine_code}</dd></div><div><dt>راننده</dt><dd>{driverLabel(selected)}</dd></div><div><dt>سرپرست</dt><dd>{people.find(person=>person.id===selected.responses.supervisor_id)?.name??'ثبت نشده'}</dd></div><div><dt>مسئول PM</dt><dd>{people.find(person=>person.id===selected.responses.pm_id)?.name??'ثبت نشده'}</dd></div><div className="span2"><dt>موضوع خرابی</dt><dd>{selected.topic}</dd></div>{selected.cause&&<div className="span2"><dt>علت احتمالی</dt><dd>{selected.cause}</dd></div>}</dl>

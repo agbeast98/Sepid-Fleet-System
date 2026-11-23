@@ -6,7 +6,8 @@ type ActionRule = { min: number; max: number | null; action: string };
 type AnalysisRules = Record<'driver'|'pm',Record<'low'|'mid'|'high',ActionRule[]>>;
 type RepairStage = { id: string; label: string; kind: 'report'|'step'|'test'; mode: 'report'|'step'|'wait'|'done'|'test'; loc: 'factory'|'road'|'shop'|'part'|'done'; limit: number | null; who: string; desc: string };
 const defaultStages: RepairStage[] = [
-  { id: 'report', label: 'اعلام خرابی (ماشین در کارخانه)', kind: 'report', mode:'report', loc:'factory', limit: null, who:'سرپرست', desc:'خرابی ثبت شده و ماشین هنوز در کارخانه است' },
+  { id: 'report', label: 'اعلام خرابی', kind: 'report', mode:'report', loc:'factory', limit: null, who:'سرپرست', desc:'خرابی ثبت شده و ماشین هنوز در کارخانه است' },
+  { id: 'dispatch', label: 'اعزام به تعمیرگاه', kind: 'step', mode:'step', loc:'road', limit: null, who:'تعمیرات', desc:'ماشین به تعمیرگاه اعزام شده است' },
   { id: 'wait', label: 'در انتظار قطعه یا خدمات', kind: 'step', mode:'wait', loc:'part', limit: 7, who:'تعمیرات', desc:'ماشین برای تعمیر رفته و در انتظار تأمین قطعه یا انجام خدمات تعمیر است' },
   { id: 'done', label: 'پایان تعمیر', kind: 'step', mode:'done', loc:'shop', limit: 2, who:'تعمیرات', desc:'تعمیر تمام شده و ماشین باید در کارخانه تست سلامت شود' },
   { id: 'test', label: 'تست سلامت (ماشین در کارخانه)', kind: 'test', mode:'test', loc:'done', limit: null, who:'سرپرست', desc:'ماشین در کارخانه آزمایش می‌شود؛ اگر قبول شود پرونده بایگانی می‌شود و اگر رد شود خرابی جدید ثبت می‌شود' },

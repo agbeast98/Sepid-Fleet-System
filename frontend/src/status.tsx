@@ -5,7 +5,7 @@ import { PersianDateInput } from './persian-date';
 
 type Stage={id:string;label:string;kind:'report'|'step'|'test';mode?:'report'|'step'|'wait'|'done'|'test';loc?:'factory'|'road'|'shop'|'part'|'done';limit:number|null;who?:string;desc?:string};
 type Outcome='pass'|'fail'|null;
-type Machine={id:string;code:string;plate:string;type:string};
+type Machine={id:string;code:string;plate:string;type:string;last_repair_result?:Outcome|'old'};
 type Repair={id:string;number:string;machine_id:string;machine_code:string;plate:string;type:string;title:string;shop:string;note:string;stage:string;urgency:string;result:Outcome;version:number;workflow:string[];created_at:string;updated_at:string;report_date:string;expected_date:string|null;refer_date:string|null;return_date:string|null;current_stage_since:string|null;current_note:string|null;current_actor:string|null;current_details:Record<string,unknown>|null};
 type Event={id:string;stage:string;result:Outcome;note:string;details?:Record<string,string>;voided_at?:string|null;recorded_at:string;actor_name:string};
 type Overview={machines:Machine[];repairs:Repair[];stages:Stage[];scope_shop:boolean};
@@ -41,17 +41,21 @@ export function Status({permissions,allowedStages,quickPickRequest,onOpenMachine
   async function open(repair:Repair){setSelected(repair);setError('');try{setEvents(await api<Event[]>(`/status/${repair.id}/events`));}catch(failure){setError(errorMessage(failure));}}
   async function advance(event:FormEvent<HTMLFormElement>){
     event.preventDefault();if(!selected)return;
-    const currentIndex=selected.workflow.indexOf(selected.stage);const nextId=selected.workflow[currentIndex+1];
+    const form=new FormData(event.currentTarget);
+    const currentIndex=selected.workflow.indexOf(selected.stage);
+    const nextId=form.has('repeat_current')?selected.stage:selected.workflow[currentIndex+1];
     const next=overview?.stages.find(stage=>stage.id===nextId);if(!next)return;
-    const form=new FormData(event.currentTarget);setBusy(true);setError('');
+    setBusy(true);setError('');
     try{
-      await api<Repair>(`/repairs/${selected.id}/events`,'POST',{previous:selected.stage,version:selected.version,note:form.get('note'),result:next.kind==='test'?form.get('result'):null,repairer_note:form.get('repairer_note'),delay_reason:form.get('delay_reason'),repeat_current:form.get('repeat_current'),...(next.mode==='wait'?{shop:form.get('shop'),part_name:form.get('part_name'),part_status:form.get('part_status'),part_vendor:form.get('part_vendor'),part_eta:form.get('part_eta'),expected_date:form.get('expected_date')}:{}),event_date:form.get('event_date'),event_time:form.get('event_time')});
+      await api<Repair>(`/repairs/${selected.id}/events`,'POST',{previous:selected.stage,version:selected.version,note:form.get('note'),result:next.kind==='test'?form.get('result'):null,repairer_note:form.get('repairer_note'),delay_reason:form.get('delay_reason'),repeat_current:form.get('repeat_current'),...Object.fromEntries(form.entries()),event_date:form.get('event_date'),event_time:form.get('event_time')});
       const [value,history]=await Promise.all([api<Overview>('/status'),api<Event[]>(`/status/${selected.id}/events`)]);
       setOverview(value);setEvents(history);setSelected(value.repairs.find(item=>item.id===selected.id)??null);
     }catch(failure){setError(errorMessage(failure));}finally{setBusy(false);}
   }
   const machinesWithRepairs=useMemo(()=>new Set((overview?.repairs??[]).map(item=>item.machine_id)),[overview]);
-  const healthy=(overview?.machines??[]).filter(machine=>!machinesWithRepairs.has(machine.id));
+  const withoutOpenRepair=(overview?.machines??[]).filter(machine=>!machinesWithRepairs.has(machine.id));
+  const healthy=withoutOpenRepair.filter(machine=>machine.last_repair_result!=='fail');
+  const failedTests=withoutOpenRepair.filter(machine=>machine.last_repair_result==='fail');
   const machineTypeOrder=['ده تن','لودر','تراکتور'];
   const machineTypes=[...new Set((overview?.machines??[]).map(machine=>machine.type.trim()).filter(Boolean))].sort((a,b)=>{
     const ai=machineTypeOrder.indexOf(a),bi=machineTypeOrder.indexOf(b);
@@ -109,8 +113,9 @@ export function Status({permissions,allowedStages,quickPickRequest,onOpenMachine
           {repair.expected_date&&<p>موعد پیش‌بینی: {dateOnlyFormat.format(new Date(repair.expected_date+'T00:00:00Z'))}</p>}
           <div className="toolbar"><button type="button" onClick={()=>void open(repair)}>جزئیات و تاریخچه</button>{next&&permissions.status>=2&&allowedStages.includes(next.id)&&<button type="button" className="btn-primary" onClick={()=>void open(repair)}>ثبت مرحلهٔ بعد: {next.label}</button>}</div>
         </article>;
-      })}</div>:<section className="card"><div className="empty status-empty"><div className="empty-ic"><Icon name={overview.repairs.length?'search-x':'shield-check'}/></div><h4>{overview.repairs.length?'ماشینی با این فیلترها پیدا نشد':overview.scope_shop?'الان ماشینی در تعمیر نیست':'همهٔ ماشین‌ها سالم و در حال کارند'}</h4>{!overview.repairs.length&&<><p>هر وقت خرابی اعلام شود، ماشین با مرحله‌اش اینجا نشان داده می‌شود.</p>{(permissions.repairs??0)>=2&&<button type="button" className="btn btn-primary" onClick={onCreateRepair}><Icon name="plus"/>اعلام خرابی</button>}</>}</div></section>}
-      {!overview.scope_shop&&<section className="card status-healthy"><h3><Icon name="circle-check"/>سالم و در حال کار</h3>{healthy.length?<div>{healthy.map(machine=><span key={machine.id}><i aria-hidden="true"/>{(permissions.machines??0)>=1?<button type="button" onClick={()=>onOpenMachine(machine.id)}><bdi>{machine.code}</bdi></button>:<bdi>{machine.code}</bdi>}</span>)}</div>:<p>همهٔ ماشین‌ها پروندهٔ باز دارند.</p>}</section>}
+      })}</div>:<section className="card"><div className="empty status-empty"><div className="empty-ic"><Icon name={overview.repairs.length?'search-x':'shield-check'}/></div><h4>{overview.repairs.length?'ماشینی با این فیلترها پیدا نشد':overview.scope_shop?'الان ماشینی در تعمیر نیست':failedTests.length?'پروندهٔ خرابی باز وجود ندارد':'همهٔ ماشین‌ها سالم و در حال کارند'}</h4>{!overview.repairs.length&&<><p>هر وقت خرابی اعلام شود، ماشین با مرحله‌اش اینجا نشان داده می‌شود.</p>{(permissions.repairs??0)>=2&&<button type="button" className="btn btn-primary" onClick={onCreateRepair}><Icon name="plus"/>اعلام خرابی</button>}</>}</div></section>}
+      {!overview.scope_shop&&failedTests.length>0&&<section className="card"><p>آخرین تست سلامت این ماشین‌ها رد شده و پروندهٔ باز ندارند: {failedTests.map(machine=>machine.code).join('، ')}</p></section>}
+      {!overview.scope_shop&&<section className="card status-healthy"><h3><Icon name="circle-check"/>سالم و در حال کار</h3>{healthy.length?<div>{healthy.map(machine=><span key={machine.id}><i aria-hidden="true"/>{(permissions.machines??0)>=1?<button type="button" onClick={()=>onOpenMachine(machine.id)}><bdi>{machine.code}</bdi></button>:<bdi>{machine.code}</bdi>}</span>)}</div>:<p>ماشینی در وضعیت سالم و در حال کار نیست.</p>}</section>}
       <section className="card status-stage-legend"><div className="card-head"><h3><Icon name="route"/>مراحل پیگیری خرابی</h3><span className="muted small">هر مرحله فقط بعد از ثبت مرحله قبل باز می‌شود</span></div><div className="status-stage-legend-grid">{overview.stages.map((stage,index)=><div className={`loc-${stage.loc??(stage.kind==='report'?'factory':stage.kind==='test'?'done':'shop')}`} key={stage.id}><span className="stp-dot">{new Intl.NumberFormat('fa-IR').format(index+1)}</span><span><b>{stage.label}</b><small>{stage.desc}{stage.limit?` · حد مجاز ${new Intl.NumberFormat('fa-IR').format(stage.limit)} روز`:''}</small></span></div>)}</div></section>
     </>}
     {selected&&overview&&<div className="status-detail-backdrop" role="presentation" onClick={event=>{if(event.target===event.currentTarget)setSelected(null);}}><article className="status-detail record" aria-label="جزئیات وضعیت ماشین">
@@ -118,8 +123,12 @@ export function Status({permissions,allowedStages,quickPickRequest,onOpenMachine
       <h4>تاریخچهٔ وضعیت</h4><ol>{events.map(item=><li key={item.id}><b>{overview.stages.find(stage=>stage.id===item.stage)?.label??item.stage}</b>{item.details?.repeat_current&&' · به‌روزرسانی همین مرحله'}{item.voided_at&&' · لغوشده'} · {item.actor_name} · {dateFormat.format(new Date(item.recorded_at))}{item.result&&` · ${item.result==='pass'?'تست قبول':item.result==='fail'?'تست رد':'بسته‌شده پیش از ثبت تست'}`}{item.note&&<p>{item.note}</p>}{item.details?.part_name&&<p>قطعه یا خدمت: {item.details.part_name}{item.details.part_status&&` · ${partStatusLabels[item.details.part_status]??item.details.part_status}`}{item.details.part_vendor&&` · ${item.details.part_vendor}`}{item.details.part_eta&&` · تحویل: ${item.details.part_eta}`}</p>}</li>)}</ol>
       {(()=>{const index=selected.workflow.indexOf(selected.stage);const next=overview.stages.find(stage=>stage.id===selected.workflow[index+1]);if(!next)return null;return permissions.status>=2&&allowedStages.includes(next.id)?<form className="record" onSubmit={advance}>
         <h4>ثبت مرحله: {next.label}</h4>{next.kind==='test'&&<label>نتیجهٔ تست<select name="result" required defaultValue=""><option value="" disabled>انتخاب نتیجه</option><option value="pass">قبول</option><option value="fail">رد</option></select></label>}
+        {selected.stage==='report'&&next.id==='dispatch'&&<div className="fields">
+          <label>تاریخ رفتن به تعمیرگاه (الزامی)<PersianDateInput name="refer_date" min={selected.report_date} required/></label>
+          <label>نام تعمیرکار (الزامی)<input name="shop" required maxLength={150} defaultValue={selected.shop}/></label>
+        </div>}
         {next.mode==='done'&&<label>نظر تعمیرکار<textarea name="repairer_note" maxLength={4000}/></label>}{next.kind==='test'&&<label>علت تأخیر<textarea name="delay_reason" maxLength={4000}/></label>}
-        {next.mode==='wait'&&<><label>تعمیرگاه یا تعمیرکار<input name="shop" maxLength={150} defaultValue={selected.shop}/></label><label>قطعه یا خدمت مورد انتظار<input name="part_name" maxLength={200}/></label><label>وضعیت تأمین<select name="part_status" defaultValue="ordered"><option value="ordered">سفارش یا درخواست داده شد</option><option value="bought">خریداری یا هماهنگ شد</option><option value="shipping">در راه تعمیرگاه</option><option value="arrived">رسید؛ تعمیر در حال انجام</option></select></label><label>فروشنده یا محل تأمین<input name="part_vendor" maxLength={200}/></label><label>تحویل تقریبی قطعه یا خدمت<PersianDateInput name="part_eta"/></label><label>موعد پیش‌بینی پایان تعمیر<PersianDateInput name="expected_date" defaultValue={selected.expected_date??''}/></label></>}
+        {next.mode==='wait'&&<><label>تعمیرگاه یا تعمیرکار<input name="shop" maxLength={150} defaultValue={selected.shop}/></label><label>قطعه یا خدمت مورد انتظار<input name="part_name" maxLength={200}/></label><label>وضعیت تأمین<select name="part_status" defaultValue="ordered"><option value="ordered">سفارش یا درخواست داده شد</option><option value="bought">خریداری یا هماهنگ شد</option><option value="shipping">در راه تعمیرگاه</option><option value="arrived">رسید؛ تعمیر در حال انجام</option></select></label><label>فروشنده یا محل تأمین<input name="part_vendor" maxLength={200}/></label><label>تحویل تقریبی قطعه یا خدمت<PersianDateInput name="part_eta"/></label><label>تاریخ پیش‌بینی بازگشت از تعمیر{selected.stage==='dispatch'?' (الزامی)':''}<PersianDateInput name="expected_date" min={selected.refer_date??selected.report_date} required={selected.stage==='dispatch'} defaultValue={selected.expected_date??''}/></label></>}
         <div className="fields"><label>تاریخ ثبت مرحله<PersianDateInput name="event_date" defaultValue={today()}/></label><label>ساعت ثبت مرحله<input name="event_time" type="time" defaultValue={timeNow()}/></label></div>
         <label>یادداشت این مرحله<textarea name="note" maxLength={4000}/></label><button disabled={busy}>ذخیرهٔ مرحله</button>
       </form>:<p>برای ثبت مرحلهٔ بعد دسترسی مجاز ندارید.</p>;})()}
