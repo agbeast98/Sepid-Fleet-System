@@ -233,7 +233,7 @@ export function Shell({ section, navigate, onQuickCreate, onQuickStage, name, co
           if (item.externalHref) return isAdmin;
           if (item.section === 'guide') return true;
           if (item.section === 'users' || item.section === 'migration' || item.section === 'backups') return isAdmin;
-          return (permissions[permissionFor[item.section!] ?? ''] ?? 0) >= (item.section === 'settings' || item.section === 'sms' ? 2 : 1);
+          return (permissions[permissionFor[item.section!] ?? ''] ?? 0) >= (item.section === 'settings' ? 2 : 1);
         }) })).filter(group => group.items.length > 0).map(group => <div className="nav-group" key={group.title}>
           <div className="nav-title">{group.title}</div>
           {group.items.map(item => item.externalHref

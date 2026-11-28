@@ -610,10 +610,17 @@ class UsersController {
     const scopeShop = body?.scope_shop === true;
     const permissions = body?.permissions;
     const stages = body?.stages;
-    if (!/^[a-zA-Z0-9._-]{3,100}$/.test(username)
-      || (rawPhone !== '' && !/^09\d{9}$/.test(phone))
-      || typeof active !== 'boolean' || typeof password !== 'string' || password.length > 256
-      || ((!existingId || password.length > 0) && password.length < 12)
+    if (!/^[a-zA-Z0-9._-]{3,100}$/.test(username)) {
+      throw new BadRequestException('نام کاربری باید ۳ تا ۱۰۰ نویسه و شامل حروف انگلیسی، عدد، نقطه، خط تیره یا زیرخط باشد.');
+    }
+    if (typeof password !== 'string' || password.length > 256 ||
+        ((!existingId || password.length > 0) && password.length < 12)) {
+      throw new BadRequestException('رمز عبور جدید باید ۱۲ تا ۲۵۶ نویسه داشته باشد.');
+    }
+    if (rawPhone !== '' && !/^09\d{9}$/.test(phone)) {
+      throw new BadRequestException('شمارهٔ موبایل معتبر ایران وارد کنید.');
+    }
+    if (typeof active !== 'boolean'
       || !permissions || typeof permissions !== 'object' || Array.isArray(permissions)
       || (body?.receive_sms !== undefined && typeof body.receive_sms !== 'boolean')
       || (personId !== null && !(await this.database.pool.query('SELECT 1 FROM people WHERE id=$1', [personId])).rowCount)
@@ -622,7 +629,9 @@ class UsersController {
       throw new BadRequestException('Invalid account details');
     }
     const stageIds = new Set((await configuredStages(this.database.pool)).map(stage => stage.id));
-    if (!stages.every(stage => typeof stage === 'string' && stageIds.has(stage))) throw new BadRequestException('Invalid stage permission');
+    if (!stages.every(stage => typeof stage === 'string' && stageIds.has(stage))) {
+      throw new BadRequestException('یکی از مراحل انتخاب‌شده دیگر در تنظیمات وجود ندارد. صفحه را تازه‌سازی کنید.');
+    }
     const levels = Object.entries(permissions);
     for (const [section, level] of levels) {
       if (!Object.hasOwn(permissionLimits, section) || typeof level !== 'number'

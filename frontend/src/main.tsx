@@ -96,14 +96,14 @@ function App() {
 
   useEffect(() => {
     if (!account) return;
-    if (section === 'sms' && (account.permissions.sms ?? 0) < 2) {
+    if (section === 'sms' && (account.permissions.sms ?? 0) < 1) {
       setSection('dashboard');
       return;
     }
     if (account.permissions.dashboard || section !== 'dashboard') return;
     const firstAllowed: Section | undefined = account.permissions.status ? 'status' : account.permissions.repairs ? 'repairs' : account.permissions.machines ? 'machines'
       : account.permissions.maint ? 'maintenance' : account.permissions.parts ? 'parts' : account.permissions.analyses ? 'analyses'
-        : account.permissions.people ? 'actions' : account.permissions.settings ? 'settings' : (account.permissions.sms ?? 0) >= 2 ? 'sms' : undefined;
+        : account.permissions.people ? 'actions' : (account.permissions.settings ?? 0) >= 2 ? 'settings' : (account.permissions.sms ?? 0) >= 1 ? 'sms' : undefined;
     if (firstAllowed) setSection(firstAllowed);
   }, [account, section]);
 
@@ -173,14 +173,14 @@ function App() {
     {section === 'machines' && <Machines permissions={account.permissions} navigate={setSection} initialMachineId={openMachineId} onInitialMachineOpened={()=>setOpenMachineId(null)} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} onCreateRepair={id=>{setQuickRepairMachineId(id);setQuickAction('repairs');setSection('repairs');}} />}
     {section === 'people' && <People level={account.permissions.people??0} availableSections={(['machines','people'] as const).filter(key=>(account.permissions[key]??0)>=1)} canManageDefinitions={(account.permissions.settings??0)>=2} onNavigate={setSection} />}
     {section === 'actions' && <ManagementActions permissions={account.permissions} initialPersonId={actionPersonId} onSelectPerson={setActionPersonId} onNavigate={setSection} />}
-    {section === 'repairs' && <Repairs startNew={quickAction==='repairs'} initialMachineId={quickRepairMachineId} onQuickComplete={()=>{setQuickAction(null);setQuickRepairMachineId(null);}} canUndo={(account.permissions.status??0)>=3} canDelete={!account.scope_shop&&(account.permissions.repairs??0)>=3} initialRepairId={openRepairId} onInitialRepairOpened={()=>setOpenRepairId(null)} onAnalyze={(id)=>{setQuickRepairId(id);setQuickAction('analyses');setSection('analyses');}} canAnalyze={(account.permissions.analyses??0)>=2} />}
+    {section === 'repairs' && <Repairs startNew={quickAction==='repairs'} initialMachineId={quickRepairMachineId} onQuickComplete={()=>{setQuickAction(null);setQuickRepairMachineId(null);}} canEdit={(account.permissions.repairs??0)>=2 && account.stages.includes('report')} allowedStages={(account.permissions.status??0)>=2 ? account.stages : []} canUndo={(account.permissions.status??0)>=3} canDelete={!account.scope_shop&&(account.permissions.repairs??0)>=3} initialRepairId={openRepairId} onInitialRepairOpened={()=>setOpenRepairId(null)} onAnalyze={(id)=>{setQuickRepairId(id);setQuickAction('analyses');setSection('analyses');}} canAnalyze={(account.permissions.analyses??0)>=2} />}
     {section === 'maintenance' && <Maintenance canEditParts={(account.permissions.parts??0)>=2} onEditPart={id=>{setOpenPartId(id);setSection('parts');}} />}
     {section === 'parts' && <Parts initialPartId={openPartId} onInitialPartOpened={()=>setOpenPartId(null)} />}
     {section === 'users' && <Users />}
     {section === 'analyses' && <Analyses startNew={quickAction==='analyses'} onQuickComplete={()=>{setQuickAction(null);setQuickRepairId(null);}} quickRepairId={quickRepairId} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} canEdit={(account.permissions.analyses??0)>=2} canDelete={!account.scope_shop&&(account.permissions.analyses??0)>=3} />}
-    {section === 'settings' && <Settings availableSections={(['machines','people','maintenance','parts','sms'] as const).filter(key => (account.permissions[key==='maintenance'?'maint':key]??0)>=(key==='sms'?2:1))} canManageDefinitions={(account.permissions.settings??0)>=2} onNavigate={setSection} onSettingsChange={value => { setCompanyName(value.companyName); setOrgName(value.orgName); setThemeSetting(value.theme); }} />}
+    {section === 'settings' && <Settings availableSections={(['machines','people','maintenance','parts','sms'] as const).filter(key => (account.permissions[key==='maintenance'?'maint':key]??0)>=1)} canManageDefinitions={(account.permissions.settings??0)>=2} onNavigate={setSection} onSettingsChange={value => { setCompanyName(value.companyName); setOrgName(value.orgName); setThemeSetting(value.theme); }} />}
     {(section === 'reports' || section === 'archive') && <Reports key={section} initialArchive={section === 'archive' ? 'closed' : 'all'} onOpenRepair={id=>{setOpenRepairId(id);setSection('repairs');}} />}
-    {section === 'sms' && (account.permissions.sms ?? 0) >= 2 && <Sms />}
+    {section === 'sms' && (account.permissions.sms ?? 0) >= 1 && <Sms canManage={(account.permissions.sms ?? 0) >= 2} />}
     {section === 'migration' && account.is_super_admin && <LegacyMigration />}
     {section === 'backups' && account.is_super_admin && <Backups />}
     {section === 'guide' && <Guide />}
@@ -205,7 +205,7 @@ function App() {
           <p>کاربر مدیر کل سامانه <b>آرمین جمالی</b> است و دسترسی کامل دارد. یک نام کاربری و رمز برای او تعیین کنید؛ بعد از ورود، او برای بقیه کاربر می‌سازد و دسترسی می‌دهد.</p>
         </div>
         <label className="field"><span className="field-label">نام کاربری مدیر کل</span>
-          <span className="input-ic"><Icon name="user" /><input className="input" name="username" dir="ltr" required minLength={3} maxLength={100} pattern="[A-Za-z0-9._-]+" defaultValue="armin" autoComplete="username" autoFocus /></span>
+          <span className="input-ic"><Icon name="user" /><input className="input" name="username" dir="ltr" required minLength={3} maxLength={100} pattern={String.raw`[A-Za-z0-9._\-]+`} defaultValue="armin" autoComplete="username" autoFocus /></span>
         </label>
         <label className="field"><span className="field-label">رمز عبور</span>
           <span className="input-ic"><Icon name="lock" /><input className="input" name="password" type="password" required minLength={12} maxLength={256} autoComplete="new-password" placeholder="دست‌کم ۱۲ نویسه" /></span>
@@ -683,7 +683,7 @@ function RepairDelay({repair}:{repair:Repair}){
   return <span className="dl dl-ok"><Icon name="circle-check"/>{days===0?'به‌موقع':`${new Intl.NumberFormat('fa-IR').format(-days)} روز زودتر`}</span>;
 }
 
-function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,initialRepairId,onInitialRepairOpened,onAnalyze,canAnalyze}:{startNew:boolean;initialMachineId?:string|null;onQuickComplete:()=>void;canUndo:boolean;canDelete:boolean;initialRepairId?:string|null;onInitialRepairOpened?:()=>void;onAnalyze?:(id:string)=>void;canAnalyze?:boolean}) {
+function Repairs({startNew,initialMachineId,onQuickComplete,canEdit,allowedStages,canUndo,canDelete,initialRepairId,onInitialRepairOpened,onAnalyze,canAnalyze}:{startNew:boolean;initialMachineId?:string|null;onQuickComplete:()=>void;canEdit:boolean;allowedStages:string[];canUndo:boolean;canDelete:boolean;initialRepairId?:string|null;onInitialRepairOpened?:()=>void;onAnalyze?:(id:string)=>void;canAnalyze?:boolean}) {
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [stages,setStages]=useState<RepairStageDefinition[]>(repairStages);
   const [machines, setMachines] = useState<{ id: string; code: string; active: boolean; type:string|null; model_name:string|null }[]>([]);
@@ -715,7 +715,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
     setBusy(true);
     setError('');
     try {
-      const [items,configured,machineOptions,names]=await Promise.all([api<Repair[]>('/repairs'),api<RepairStageDefinition[]>('/repairs/stages'),api<{id:string;code:string;active:boolean;type:string|null;model_name:string|null}[]>('/repairs/machines'),api<string[]>('/repairs/diagnosers')]);
+      const [items,configured,machineOptions,names]=await Promise.all([api<Repair[]>('/repairs'),api<RepairStageDefinition[]>('/repairs/stages'),canEdit ? api<{id:string;code:string;active:boolean;type:string|null;model_name:string|null}[]>('/repairs/machines') : Promise.resolve([]),canEdit ? api<string[]>('/repairs/diagnosers') : Promise.resolve([])]);
       setRepairs(items);setStages(configured);setMachines(machineOptions);setDiagnoserOptions(names);
     } catch (failure) {
       setError(errorMessage(failure));
@@ -725,7 +725,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
   }
 
   useEffect(() => { void refresh(); }, []);
-  useEffect(() => { if(startNew){void openNew(null,initialMachineId);onQuickComplete();} }, [startNew]);
+  useEffect(() => { if(startNew){if(canEdit) void openNew(null,initialMachineId);onQuickComplete();} }, [startNew,canEdit]);
 
   async function openNew(fromRejected:Repair|null=null,preferredMachineId?:string|null) {
     setBusy(true);
@@ -971,7 +971,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
     </form>}
     {!creating&&<div className="repair-list-content">
     {selected && <article className="record" aria-label="جزئیات خرابی">
-      <div className="toolbar"><h3>{selected.title}</h3><button disabled={busy} onClick={printSelectedRepair}>چاپ فرم پرونده</button>{canAnalyze&&onAnalyze&&<button disabled={busy} onClick={()=>onAnalyze(selected.id)}>تحلیل این خرابی</button>}<button disabled={busy} onClick={()=>void openEdit(selected)}>ویرایش پرونده</button>{canDelete&&<button type="button" className="btn-danger" disabled={busy} onClick={()=>void deleteRepair(selected)}>حذف پرونده</button>}
+      <div className="toolbar"><h3>{selected.title}</h3><button disabled={busy} onClick={printSelectedRepair}>چاپ فرم پرونده</button>{canAnalyze&&onAnalyze&&<button disabled={busy} onClick={()=>onAnalyze(selected.id)}>تحلیل این خرابی</button>}{canEdit&&<button disabled={busy} onClick={()=>void openEdit(selected)}>ویرایش پرونده</button>}{canDelete&&<button type="button" className="btn-danger" disabled={busy} onClick={()=>void deleteRepair(selected)}>حذف پرونده</button>}
         {canUndo&&history.at(-1)?.undoable&&!history.at(-1)?.voided_at&&history.at(-1)?.revision===selected.version&&<button disabled={busy}
           onClick={()=>void undoLast()}>برگرداندن آخرین ثبت</button>}</div>
       <p>{selected.machine_code} · {repairStatus(selected.stage, selected.result,stages)}</p>
@@ -980,14 +980,14 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
       <p>اعلام: {dateOnlyFormat.format(new Date(selected.report_date + 'T00:00:00Z'))}{selected.diagnoser ? ` · مسئول تشخیص: ${selected.diagnoser}` : ''}{selected.expected_date ? ` · پیش‌بینی پایان: ${dateOnlyFormat.format(new Date(selected.expected_date + 'T00:00:00Z'))}` : ''}</p>
       {selected.note && <p>{selected.note}</p>}
       {selected.repairer_note && <p><b>نظر تعمیرکار: </b>{selected.repairer_note}</p>}{selected.delay_reason && <p><b>علت تأخیر: </b>{selected.delay_reason}</p>}
-      {selected.result==='fail'&&<button disabled={busy} onClick={()=>void openNew(selected)}>اعلام خرابی جدید برای همین ماشین</button>}
+      {canEdit&&selected.result==='fail'&&<button disabled={busy} onClick={()=>void openNew(selected)}>اعلام خرابی جدید برای همین ماشین</button>}
       <h4>تاریخچهٔ مراحل</h4>
       <ol>{history.map(item => <li key={item.id} className={item.voided_at?'voided-event':undefined}>
         <strong>{repairStatus(item.stage, item.result,stages)}</strong>{item.details?.repeat_current&&' · به‌روزرسانی همین مرحله'}{item.voided_at&&' · لغوشده'} · {item.actor_name} · {dateFormat.format(new Date(item.recorded_at))}
         {item.note && <p>{item.note}</p>}
         {item.details&&<p>{[['shop','تعمیرگاه'],['part_name','قطعه یا خدمت'],['part_status','وضعیت تأمین'],['part_vendor','فروشنده یا محل تأمین'],['part_eta','تحویل تقریبی'],['expected_date','موعد پایان']].filter(([key])=>item.details?.[key]).map(([key,label])=>`${label}: ${key==='part_status'?({ordered:'سفارش شد',bought:'خریداری شد',shipping:'در راه',arrived:'رسید'}[item.details?.[key]??'']??item.details?.[key]):item.details?.[key]}`).join(' · ')}</p>}
       </li>)}</ol>
-      {selected.result===null&&nextStage&& <form key={selected.id + selected.version} onSubmit={advance}>
+      {selected.result===null&&nextStage&&allowedStages.includes(nextStage.id)&& <form key={selected.id + selected.version} onSubmit={advance}>
         {(()=>{const next=nextStage;return <>
         <h4>{next.label}</h4>
         {selected.stage==='report'&&next.id==='dispatch'&&<div className="fields">
@@ -1013,7 +1013,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
         <button disabled={busy}>ثبت مرحلهٔ بعد</button>
         </>;})()}
       </form>}
-      {selectedStage?.mode==='wait'&&<form className="record" key={`${selected.id}-${selected.version}-${history.at(-1)?.id??'repeat'}-${history.at(-1)?.voided_at??'active'}`} onSubmit={advance}>
+      {selectedStage?.mode==='wait'&&allowedStages.includes(selectedStage.id)&&<form className="record" key={`${selected.id}-${selected.version}-${history.at(-1)?.id??'repeat'}-${history.at(-1)?.voided_at??'active'}`} onSubmit={advance}>
         <input type="hidden" name="repeat_current" value="true"/><h4>به‌روزرسانی همین مرحله</h4>
         <label>تعمیرگاه یا تعمیرکار<input name="shop" maxLength={150} defaultValue={selected.shop}/></label>
         <label>قطعه یا خدمت مورد انتظار<input name="part_name" maxLength={200} defaultValue={currentStageEvent?.details?.part_name??''}/></label>
@@ -1042,7 +1042,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
     </>}
     <div className={`fields report-filters repair-filter-grid ${archived?'archive':'open'}`} aria-label="جست‌وجو و فیلتر پرونده‌ها">
       <label>جستجو<div className="repair-search-input"><Icon name="search"/><input value={query} onChange={event => setQuery(event.target.value)} placeholder={archived?'شماره، ماشین یا شرح پرونده':'نوع خرابی، تعمیرگاه، مسئول تشخیص…'} /></div></label>
-      <label>ماشین<select value={machineFilter} onChange={event => setMachineFilter(event.target.value)}><option value="">همه</option>{machines.map(item=><option key={item.id} value={item.code}>{item.code}</option>)}</select></label>
+      <label>ماشین<select value={machineFilter} onChange={event => setMachineFilter(event.target.value)}><option value="">همه</option>{(canEdit?machines:[...new Map(repairs.map(item=>[item.machine_id,{id:item.machine_id,code:item.machine_code}])).values()]).map(item=><option key={item.id} value={item.code}>{item.code}</option>)}</select></label>
       {!archived&&<><label>وضعیت<select value={lateOnly?'__late':stageFilter} onChange={event => {if(event.target.value==='__late'){setStageFilter('');setLateOnly(true);}else{setStageFilter(event.target.value);setLateOnly(false);}}}><option value="">همهٔ خرابی‌های باز</option>{stages.filter(stage=>stage.kind!=='test').map(stage=><option key={stage.id} value={stage.id}>{stage.label}</option>)}<option value="__late">دارای تأخیر</option></select></label>
       <label>سطح ضرورت<select value={urgencyFilter} onChange={event => setUrgencyFilter(event.target.value as keyof typeof repairUrgencies | '')}><option value="">همه</option>{Object.entries(repairUrgencies).map(([key,label])=><option key={key} value={key}>{key==='d13'?`ارسال با تأخیر ${label}`:key==='d47'?`ارسال با تأخیر ${label}`:label}</option>)}</select></label></>}
       <label className={archived?'':'repair-date-filter'}>{archived?'از تاریخ بازگشت':'از تاریخ اعلام'}<PersianDateInput value={dateFrom} max={dateTo||undefined} onChange={setDateFrom} /></label>
@@ -1050,7 +1050,7 @@ function Repairs({startNew,initialMachineId,onQuickComplete,canUndo,canDelete,in
       {(query||machineFilter||stageFilter||urgencyFilter||dateFrom||dateTo||lateOnly||archiveResultFilter)&&<button type="button" onClick={() => { setQuery(''); setMachineFilter(''); setStageFilter(''); setUrgencyFilter(''); setDateFrom(''); setDateTo(''); setLateOnly(false);setArchiveResultFilter(''); }}>پاک‌کردن فیلترها</button>}
     </div>
     {!busy&&(visible.length>0||archived)&&<p>نمایش {new Intl.NumberFormat('fa-IR').format(visible.length)} از {new Intl.NumberFormat('fa-IR').format(repairs.filter(item => (item.result !== null) === archived).length)} پروندهٔ {archived ? 'بایگانی' : 'باز'}</p>}
-    {!visible.length&&!busy&&!archived&&<section className="card flush"><div className="empty"><div className="empty-ic"><Icon name={openRepairs.length?'search-x':'shield-check'}/></div><h4>{openRepairs.length?'موردی با این فیلترها پیدا نشد':'خرابی بازی وجود ندارد'}</h4>{openRepairs.length===0&&<><p>همه خرابی‌ها تست سلامت شده و در بایگانی‌اند.</p><button className="btn btn-primary" type="button" onClick={()=>void openNew()}><Icon name="plus"/>اعلام خرابی</button></>}</div></section>}
+    {!visible.length&&!busy&&!archived&&<section className="card flush"><div className="empty"><div className="empty-ic"><Icon name={openRepairs.length?'search-x':'shield-check'}/></div><h4>{openRepairs.length?'موردی با این فیلترها پیدا نشد':'خرابی بازی وجود ندارد'}</h4>{openRepairs.length===0&&<><p>همه خرابی‌ها تست سلامت شده و در بایگانی‌اند.</p>{canEdit&&<button className="btn btn-primary" type="button" onClick={()=>void openNew()}><Icon name="plus"/>اعلام خرابی</button>}</>}</div></section>}
     {!visible.length&&!busy&&archived&&<p>پرونده‌ای با این فیلترها در بایگانی پیدا نشد.</p>}
     {archived&&archiveRows.length>0&&<section className="card flush"><div className="table-wrap"><table className="table rep-table archive-table">
       <thead><tr><th>شماره</th><th>ماشین</th><th>شرح خرابی</th><th>تاریخ اعلام</th><th>ارجاع برای تعمیر</th><th>پایان تعمیر</th><th>بازگشت</th><th>تکمیل تست</th><th>نتیجه</th><th>مدت توقف</th><th>عملیات</th></tr></thead>
